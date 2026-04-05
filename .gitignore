@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Environment files (NEVER push secrets)
+.env
+.env.local
+.env.production
+.env.development
+
+# Build outputs
+dist/
+build/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Misc
+.qoder/
+frontend.bfg-report/

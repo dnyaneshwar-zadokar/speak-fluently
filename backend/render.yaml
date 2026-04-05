@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: speak-better-backend
+    env: node
+    buildCommand: npm install
+    startCommand: node server.js
+    rootDir: backend
