@@ -61,10 +61,13 @@ router.post('/:id/complete', authMiddleware, async (req, res) => {
           }
         },
         $inc: { 
-          totalPoints: 10, // Award 10 points for completing a lesson
-          xp: 15, // Award 15 XP for completing a lesson
+          totalPoints: 10,
+          xp: 15,
           totalMinutes: lesson.estimatedTime || 5, // Add estimated time for the lesson
           sessionCount: 1 // Increment session count
+        },
+        $set: {
+          lastActiveDate: new Date()
         }
       },
       { new: true }

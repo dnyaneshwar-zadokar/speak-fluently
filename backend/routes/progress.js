@@ -64,42 +64,61 @@ router.get('/update', authMiddleware, async (req, res) => {
       .sort({ date: -1 });
 
     // Calculate total minutes from session durations
-    const totalMinutes = sessions.reduce((sum, session) => sum + Math.floor(session.duration / 60), 0);
+    const sessionMinutes = sessions.reduce((sum, session) => sum + Math.floor(session.duration / 60), 0);
     
-    // Calculate session count
-    const sessionCount = sessions.length;
+    // Calculate minutes from completed micro-lessons
+    // Each lesson is associated with an estimatedTime from the lesson document
+    // But since we don't want to do another join here, I'll use a baseline or lookup
+    const lessonMinutes = user.completedMicroLessons ? user.completedMicroLessons.length * 5 : 0; // Default 5 mins per lesson
     
-    // Calculate current streak
+    const totalMinutes = sessionMinutes + lessonMinutes;
+    
+    // Calculate session count (Sessions + Lessons + Mentor Levels)
+    const completedLessons = user.completedMicroLessons ? user.completedMicroLessons.length : 0;
+    const completedMentorLevels = user.completedLevels ? user.completedLevels.length : 0;
+    const sessionCount = sessions.length + completedLessons + completedMentorLevels;
+    
+    // Calculate current streak considering ALL types of activity
     let streakDays = 0;
-    if (sessions.length > 0) {
+    
+    // Combine all activity dates
+    const activityDates = [
+      ...sessions.map(s => s.date),
+      ...(user.completedMicroLessons || []).map(l => l.completedAt),
+      ...(user.completedLevels || []).map(l => l.completedAt)
+    ].filter(d => d).sort((a, b) => b - a);
+
+    if (activityDates.length > 0) {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       
-      // Check if user practiced today
-      const todaySessions = sessions.filter(s => {
-        const sessionDate = new Date(s.date);
-        sessionDate.setHours(0, 0, 0, 0);
-        return sessionDate.getTime() === today.getTime();
-      });
+      const lastActivityDate = new Date(activityDates[0]);
+      lastActivityDate.setHours(0, 0, 0, 0);
       
-      if (todaySessions.length > 0) {
+      const diffSinceLastActivity = Math.floor((today - lastActivityDate) / (1000 * 60 * 60 * 24));
+      
+      if (diffSinceLastActivity <= 1) {
+        // User was active today or yesterday, start counting streak
         streakDays = 1;
         
-        // Check previous days
-        let currentDate = new Date(today);
+        let currentDate = new Date(lastActivityDate);
         let hasStreak = true;
+        let daysChecked = 0;
         
-        while (hasStreak) {
-          currentDate.setDate(currentDate.getDate() - 1);
+        while (hasStreak && daysChecked < 365) { // Safety limit
+          const previousDate = new Date(currentDate);
+          previousDate.setDate(previousDate.getDate() - 1);
           
-          const daySessions = sessions.filter(s => {
-            const sessionDate = new Date(s.date);
-            sessionDate.setHours(0, 0, 0, 0);
-            return sessionDate.getTime() === currentDate.getTime();
+          const wasActiveOnDate = activityDates.some(d => {
+            const date = new Date(d);
+            date.setHours(0, 0, 0, 0);
+            return date.getTime() === previousDate.getTime();
           });
           
-          if (daySessions.length > 0) {
+          if (wasActiveOnDate) {
             streakDays++;
+            currentDate = previousDate;
+            daysChecked++;
           } else {
             hasStreak = false;
           }
@@ -108,20 +127,14 @@ router.get('/update', authMiddleware, async (req, res) => {
     }
     
     // Update user's stored progress data
-    // Use the manually tracked values as they represent ALL activities
-    // PracticeSession data is already included in totalMinutes/sessionCount
-    // So we don't need to recalculate - just ensure the stored values are correct
-    
-    // Update the stats.totalTimeSpent field for dashboard consistency
     if (!user.stats) {
       user.stats = {};
     }
     user.stats.totalTimeSpent = totalMinutes;
-    
-    // The totalMinutes and sessionCount should already include all activities
-    // No need to modify them here as they're updated by the tracking endpoints
+    user.totalMinutes = totalMinutes;
+    user.sessionCount = sessionCount;
     user.streak = streakDays;
-    user.lastActiveDate = sessions.length > 0 ? sessions[0].date : null;
+    user.lastActiveDate = activityDates.length > 0 ? activityDates[0] : user.lastActiveDate;
     
     // Update max streak if current streak is higher
     if (streakDays > user.maxStreak) {
@@ -130,11 +143,8 @@ router.get('/update', authMiddleware, async (req, res) => {
     
     await user.save();
     
-    // Count completed micro-lessons
-    const completedLessons = user.completedMicroLessons ? user.completedMicroLessons.length : 0;
-    
     // Get last practice date
-    const lastPracticeDate = sessions.length > 0 ? sessions[0].date : null;
+    const lastPracticeDate = activityDates.length > 0 ? activityDates[0] : null;
 
     const progress = {
       totalMinutes,
