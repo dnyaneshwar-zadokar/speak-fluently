@@ -77,6 +77,7 @@ const corsOptions = {
     'http://localhost:5173', 
     'http://localhost:3000', 
     'http://localhost:3001',
+    'https://speak-fluently-sigma.vercel.app',
     'https://*.trycloudflare.com',
     'https://*.workers.dev',
     '*'
@@ -94,35 +95,6 @@ app.use(express.json());
 // Request logging middleware
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.path}`);
-  next();
-});
-
-// Add CORS headers manually to all responses as a fallback
-app.use((req, res, next) => {
-  const allowedOrigins = [
-    'http://localhost:5173', 
-    'http://localhost:3000', 
-    'http://localhost:3001',
-    'https://*.trycloudflare.com',
-    'https://*.workers.dev'
-  ];
-  
-  const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin) || 
-      origin?.endsWith('.trycloudflare.com') || 
-      origin?.endsWith('.workers.dev')) {
-    res.header('Access-Control-Allow-Origin', origin);
-  }
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    res.sendStatus(200);
-    return;
-  }
-  
   next();
 });
 
@@ -148,7 +120,17 @@ if (process.env.MONGODB_URI) {
   console.error('❌ MONGODB_URI is not defined in environment variables');
 }
 
-// Routes
+// Health check endpoint (Defined BEFORE production catch-all)
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'OK', 
+    env: process.env.NODE_ENV,
+    db: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    timestamp: new Date().toISOString() 
+  });
+});
+
+// Routes (Defined BEFORE production catch-all)
 app.use('/api/auth', authRoutes);
 if (aiRoutes) {
   app.use('/api/ai', aiRoutes);
@@ -203,10 +185,7 @@ if (process.env.NODE_ENV === 'production') {
   }
 }
 
-// Add a health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
-});
+// The production catch-all below will only match if nothing above (API/Health) matched
 
 const PORT = process.env.PORT || 5002;
 const HOST = process.env.NODE_ENV === 'production' ? '0.0.0.0' : 'localhost';
